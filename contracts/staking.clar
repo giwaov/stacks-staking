@@ -86,3 +86,46 @@
       start-block: block-height
     }))
     (ok rewards)))
+
+;; ===== COMPOUND & EMERGENCY FEATURES =====
+
+;; Compound rewards back into stake
+(define-public (compound-rewards)
+  (let (
+    (stake-data (unwrap! (map-get? stakes tx-sender) ERR_NOTHING_STAKED))
+    (rewards (calculate-rewards tx-sender))
+  )
+    (asserts! (> rewards u0) ERR_INSUFFICIENT_BALANCE)
+    (map-set stakes tx-sender {
+      amount: (+ (get amount stake-data) rewards),
+      start-block: block-height,
+      rewards-claimed: (get rewards-claimed stake-data)
+    })
+    (var-set total-staked (+ (var-get total-staked) rewards))
+    (ok rewards)))
+
+;; Emergency withdraw (forfeits pending rewards)
+(define-public (emergency-withdraw)
+  (let (
+    (stake-data (unwrap! (map-get? stakes tx-sender) ERR_NOTHING_STAKED))
+    (amount (get amount stake-data))
+  )
+    (try! (as-contract (stx-transfer? amount tx-sender tx-sender)))
+    (map-delete stakes tx-sender)
+    (var-set total-staked (- (var-get total-staked) amount))
+    (var-set staker-count (- (var-get staker-count) u1))
+    (ok amount)))
+
+;; Get estimated APY based on current parameters
+(define-read-only (get-estimated-apy)
+  (* REWARD_RATE u100)) ;; Returns basis points
+
+;; Get time until next reward checkpoint
+(define-read-only (get-stake-duration (staker principal))
+  (match (map-get? stakes staker)
+    stake-data (- block-height (get start-block stake-data))
+    u0))
+
+;; Check if user has active stake
+(define-read-only (is-staking (staker principal))
+  (is-some (map-get? stakes staker)))
